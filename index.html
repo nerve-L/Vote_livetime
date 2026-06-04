@@ -115,6 +115,45 @@
       flex-shrink: 0;
     }
     .option.selected .check { display: flex; }
+
+    /* Tentative selection: highlighted but not yet submitted */
+    .option.pending {
+      background: #fef3c7;
+      border-color: #fbbf24;
+      box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35);
+    }
+    .option.pending .badge { background: #f59e0b; }
+
+    /* Confirm submit button per question */
+    .submit-btn {
+      margin-top: 14px;
+      width: 100%;
+      background: rgba(255,255,255,0.15);
+      color: rgba(255,255,255,0.55);
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 14px;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.25s;
+      font-family: inherit;
+    }
+    .submit-btn:active { transform: scale(0.97); }
+    .submit-btn.ready {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      border-color: #fff;
+      box-shadow: 0 8px 28px rgba(16, 185, 129, 0.45);
+    }
+    .submit-btn.disabled { pointer-events: none; }
+    .submit-btn.submitted {
+      background: rgba(16, 185, 129, 0.25);
+      color: #d1fae5;
+      border-color: rgba(16,185,129,0.5);
+      box-shadow: none;
+    }
     .status {
       text-align: center;
       margin: 10px 0 0;
@@ -137,7 +176,7 @@
   <div class="container">
     <div class="head">
       <h1>现场实时投票</h1>
-      <p>Live Poll · 选择你的答案 Tap to vote</p>
+      <p>Live Poll · 选好后点"确认提交" Tap option, then submit</p>
     </div>
 
     <div class="question" data-q="q1">
@@ -170,6 +209,7 @@
           <span class="check">✓</span>
         </button>
       </div>
+      <button class="submit-btn disabled" data-submit="q1">确认提交 Submit</button>
     </div>
 
     <div class="question" data-q="q2">
@@ -194,9 +234,10 @@
           <span class="check">✓</span>
         </button>
       </div>
+      <button class="submit-btn disabled" data-submit="q2">确认提交 Submit</button>
     </div>
 
-    <div class="status" id="status">请选择你的答案</div>
+    <div class="status" id="status">先选择，再点"确认提交"</div>
     <div class="footer">数据匿名 · 仅用于现场展示</div>
   </div>
 
@@ -205,57 +246,95 @@
   <script>
     const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
     const status = document.getElementById('status');
+    const pending = { q1: null, q2: null };
 
     function setStatus(text, cls) {
       status.textContent = text;
       status.className = 'status' + (cls ? ' ' + cls : '');
     }
 
-    function markVoted(q, opt) {
-      const block = document.querySelector(`.question[data-q="${q}"]`);
-      block.querySelectorAll('.option').forEach(b => {
-        b.classList.add('disabled');
-        if (b.dataset.opt === opt) b.classList.add('selected');
+    const isSubmitted = q => !!localStorage.getItem('voted_' + q);
+    const $block      = q => document.querySelector(`.question[data-q="${q}"]`);
+    const $submitBtn  = q => document.querySelector(`.submit-btn[data-submit="${q}"]`);
+
+    function highlightPending(q, opt) {
+      $block(q).querySelectorAll('.option').forEach(b => {
+        b.classList.toggle('pending', b.dataset.opt === opt);
       });
     }
 
+    function markSubmitted(q, opt) {
+      $block(q).querySelectorAll('.option').forEach(b => {
+        b.classList.remove('pending');
+        b.classList.add('disabled');
+        if (b.dataset.opt === opt) b.classList.add('selected');
+      });
+      const btn = $submitBtn(q);
+      btn.classList.remove('ready');
+      btn.classList.add('submitted', 'disabled');
+      btn.textContent = '已提交 ✓ Submitted';
+    }
+
+    function syncSubmitBtn(q) {
+      if (isSubmitted(q)) return;
+      const btn = $submitBtn(q);
+      if (pending[q]) {
+        btn.classList.remove('disabled');
+        btn.classList.add('ready');
+      } else {
+        btn.classList.add('disabled');
+        btn.classList.remove('ready');
+      }
+    }
+
     function refreshStatus() {
-      const a = localStorage.getItem('voted_q1');
-      const b = localStorage.getItem('voted_q2');
-      if (a && b) setStatus('感谢参与！Thanks for voting ✓', 'ok');
-      else if (a || b) setStatus('已记录一题，请继续 / Continue', 'ok');
-      else setStatus('请选择你的答案 Tap to vote');
+      const a = isSubmitted('q1'), b = isSubmitted('q2');
+      if (a && b)       setStatus('感谢参与！Thanks for voting ✓', 'ok');
+      else if (a || b)  setStatus('已提交一题，请继续 / Continue', 'ok');
+      else              setStatus('先选择，再点"确认提交"');
     }
 
     function restore() {
       ['q1', 'q2'].forEach(q => {
         const v = localStorage.getItem('voted_' + q);
-        if (v) markVoted(q, v);
+        if (v) markSubmitted(q, v);
       });
       refreshStatus();
     }
 
+    // Tap an option → tentative selection (can change before submit)
     document.querySelectorAll('.question').forEach(block => {
       const q = block.dataset.q;
       block.querySelectorAll('.option').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          if (localStorage.getItem('voted_' + q)) return;
-          const opt = btn.dataset.opt;
-          block.querySelectorAll('.option').forEach(b => b.classList.add('disabled'));
-          setStatus('提交中... Submitting...');
-          try {
-            const { error } = await sb.rpc('increment_vote', { qid: q, opt: opt });
-            if (error) throw error;
-            localStorage.setItem('voted_' + q, opt);
-            markVoted(q, opt);
-            refreshStatus();
-          } catch (e) {
-            block.querySelectorAll('.option').forEach(b => {
-              if (!localStorage.getItem('voted_' + q)) b.classList.remove('disabled');
-            });
-            setStatus('提交失败，请重试 Failed: ' + (e.message || e), 'err');
-          }
+        btn.addEventListener('click', () => {
+          if (isSubmitted(q)) return;
+          pending[q] = btn.dataset.opt;
+          highlightPending(q, pending[q]);
+          syncSubmitBtn(q);
         });
+      });
+    });
+
+    // Tap "确认提交" → actually send the vote
+    document.querySelectorAll('.submit-btn').forEach(btn => {
+      const q = btn.dataset.submit;
+      btn.addEventListener('click', async () => {
+        if (isSubmitted(q) || !pending[q]) return;
+        const opt = pending[q];
+        btn.classList.add('disabled');
+        btn.textContent = '提交中... Submitting...';
+        setStatus('提交中... Submitting...');
+        try {
+          const { error } = await sb.rpc('increment_vote', { qid: q, opt: opt });
+          if (error) throw error;
+          localStorage.setItem('voted_' + q, opt);
+          markSubmitted(q, opt);
+          refreshStatus();
+        } catch (e) {
+          btn.classList.remove('disabled');
+          btn.textContent = '确认提交 Submit';
+          setStatus('提交失败，请重试 Failed: ' + (e.message || e), 'err');
+        }
       });
     });
 

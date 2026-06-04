@@ -382,6 +382,7 @@
   <div class="help-panel" id="help">
     <div><kbd>F</kbd> 切换全屏 Toggle fullscreen</div>
     <div><kbd>R</kbd> 重置本机投票 Reset local vote</div>
+    <div><kbd>Shift</kbd>+<kbd>R</kbd> 服务器清零（需密码）Reset server</div>
     <div><kbd>?</kbd> 隐藏 / 显示帮助</div>
     <div><kbd>Esc</kbd> 退出全屏</div>
   </div>
@@ -533,8 +534,18 @@
       } else if (k === '?' || k === '/') {
         e.preventDefault();
         help.classList.toggle('show');
+      } else if (k === 'r' && e.shiftKey) {
+        // Shift+R: server-side reset (asks for password)
+        e.preventDefault();
+        const pw = prompt('输入重置密码 (Reset password)\n这会把服务器票数清零，所有观众看到的数字归 0');
+        if (!pw) return;
+        toast('清零中...');
+        sb.rpc('reset_votes', { secret: pw }).then(({ data, error }) => {
+          if (error) { toast('失败: ' + error.message); return; }
+          toast('已清零 · Reset OK');
+        });
       } else if (k === 'r') {
-        // reset LOCAL vote markers only (for testing — does NOT touch server)
+        // R: reset LOCAL vote markers only (for testing — server unchanged)
         if (confirm('清除本机投票记录？(仅本设备，服务器票数不变)')) {
           localStorage.removeItem('voted_q1');
           localStorage.removeItem('voted_q2');

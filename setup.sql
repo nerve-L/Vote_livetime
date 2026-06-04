@@ -52,6 +52,27 @@ create policy "read_all" on public.votes for select using (true);
 grant execute on function public.increment_vote(text, text) to anon, authenticated;
 grant select on public.votes to anon, authenticated;
 
+-- 4.5) 重置票数 RPC（带密码，防止被乱清）
+-- 演讲前在 SQL Editor 跑：select public.reset_votes('reset2026');
+-- 或在大屏按 Shift+R 弹密码框
+create or replace function public.reset_votes(secret text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if secret is null or secret <> 'reset2026' then
+    raise exception 'wrong password';
+  end if;
+  update public.votes set data = '{"A":0,"B":0,"C":0}'::jsonb, updated_at = now() where id = 'q1';
+  update public.votes set data = '{"A":0,"B":0}'::jsonb,       updated_at = now() where id = 'q2';
+  return jsonb_build_object('ok', true, 'reset_at', now());
+end;
+$$;
+
+grant execute on function public.reset_votes(text) to anon, authenticated;
+
 -- 5) 开启 Realtime（幂等：已加过就跳过）
 do $$
 begin
