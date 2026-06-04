@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Supabase 诊断 · Diagnostic</title>
+  <style>
+    body {
+      font-family: ui-monospace, Menlo, Monaco, monospace;
+      background: #0b1220;
+      color: #f1f5f9;
+      padding: 24px;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    .sub { opacity: 0.6; margin-bottom: 24px; font-size: 13px; }
+    #log {
+      background: #000;
+      border: 1px solid #1e293b;
+      padding: 16px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      min-height: 200px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .ok    { color: #6ee7b7; }
+    .err   { color: #fca5a5; }
+    .warn  { color: #fde68a; }
+    .info  { color: #93c5fd; }
+    .btn {
+      display: inline-block;
+      padding: 10px 18px;
+      background: #6366f1;
+      color: #fff;
+      border-radius: 8px;
+      text-decoration: none;
+      margin: 8px 8px 8px 0;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Supabase 现场诊断</h1>
+  <div class="sub">如果看到全是 ✓，说明配置正常。如果有 ✗，按错误信息修复。</div>
+
+  <button class="btn" onclick="testIncrement('q1','A')">测试投票 Q1-A</button>
+  <button class="btn" onclick="testIncrement('q2','B')">测试投票 Q2-B</button>
+  <button class="btn" onclick="location.reload()">重新跑诊断</button>
+
+  <div id="log"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script>
+    const log = document.getElementById('log');
+    function write(msg, cls) {
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      line.textContent = msg;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    write('[1] 检查 config.js…', 'info');
+    if (!window.SUPABASE_URL || window.SUPABASE_URL.includes('YOUR-PROJECT')) {
+      write('  ✗ SUPABASE_URL 是占位符', 'err');
+    } else {
+      write('  ✓ URL: ' + window.SUPABASE_URL, 'ok');
+    }
+    if (!window.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY.includes('YOUR-ANON')) {
+      write('  ✗ SUPABASE_ANON_KEY 是占位符', 'err');
+    } else {
+      write('  ✓ KEY (前 40 字符): ' + window.SUPABASE_ANON_KEY.slice(0, 40) + '...', 'ok');
+    }
+
+    write('\n[2] 检查 Supabase SDK 是否加载…', 'info');
+    if (typeof window.supabase === 'undefined') {
+      write('  ✗ Supabase SDK 没加载——CDN 网络问题', 'err');
+      throw new Error('SDK missing');
+    }
+    write('  ✓ SDK 已加载', 'ok');
+
+    let sb;
+    try {
+      sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+      write('  ✓ Client 创建成功', 'ok');
+    } catch (e) {
+      write('  ✗ Client 创建失败: ' + e.message, 'err');
+      throw e;
+    }
+
+    write('\n[3] HTTP 测试: 查询 votes 表…', 'info');
+    sb.from('votes').select('*').then(({ data, error }) => {
+      if (error) {
+        write('  ✗ 查询失败: ' + error.message, 'err');
+        write('    code: ' + error.code, 'err');
+        write('    hint: ' + (error.hint || '—'), 'err');
+        if (error.message.includes('relation') && error.message.includes('does not exist')) {
+          write('  → 没建表，回 Supabase Dashboard → SQL Editor 跑 setup.sql', 'warn');
+        } else if (error.message.includes('JWT') || error.message.includes('invalid')) {
+          write('  → anon key 不对，去 Project Settings → API 重新复制', 'warn');
+        }
+      } else {
+        write('  ✓ 查询成功，返回 ' + data.length + ' 行', 'ok');
+        data.forEach(r => write('    ' + r.id + ': ' + JSON.stringify(r.data), 'ok'));
+      }
+    });
+
+    write('\n[4] WebSocket Realtime 测试…', 'info');
+    write('  (等待最多 10 秒)', 'info');
+    let realtimeDone = false;
+    const channel = sb.channel('test-' + Date.now())
+      .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'votes' },
+          payload => {
+            write('  📨 收到实时变化: ' + payload.new.id + ' = ' + JSON.stringify(payload.new.data), 'ok');
+          })
+      .subscribe((status, err) => {
+        write('  状态: ' + status + (err ? ' (' + err.message + ')' : ''), status === 'SUBSCRIBED' ? 'ok' : 'warn');
+        if (status === 'SUBSCRIBED') {
+          realtimeDone = true;
+          write('  ✓ Realtime 连接成功！点上面按钮投票，应该看到 📨', 'ok');
+        } else if (status === 'CHANNEL_ERROR') {
+          write('  ✗ Realtime 失败——可能没在 Database → Publications 启用 votes 表', 'err');
+        } else if (status === 'TIMED_OUT') {
+          write('  ✗ Realtime 超时——WebSocket 被网络阻挡', 'err');
+        }
+      });
+
+    setTimeout(() => {
+      if (!realtimeDone) write('  ⚠ 10 秒还没 SUBSCRIBED，看上面的状态变化', 'warn');
+    }, 10000);
+
+    async function testIncrement(qid, opt) {
+      write('\n[手动] 调用 increment_vote(' + qid + ', ' + opt + ')…', 'info');
+      const { data, error } = await sb.rpc('increment_vote', { qid, opt });
+      if (error) {
+        write('  ✗ ' + error.message, 'err');
+      } else {
+        write('  ✓ 已 +1，新数据: ' + JSON.stringify(data), 'ok');
+      }
+    }
+  </script>
+</body>
+</html>

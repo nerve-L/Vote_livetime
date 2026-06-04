@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>现场投票大屏 · Live Poll Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(1200px 800px at 10% 0%, rgba(99,102,241,0.25), transparent 60%),
+        radial-gradient(1000px 700px at 100% 100%, rgba(236,72,153,0.18), transparent 60%),
+        linear-gradient(135deg, #0b1220 0%, #111827 60%, #1f2937 100%);
+      color: #f1f5f9;
+    }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr 420px;
+      gap: 24px;
+      padding: 28px;
+      height: 100vh;
+    }
+
+    .panel {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 22px;
+      padding: 28px 30px 30px;
+      display: flex;
+      flex-direction: column;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+      min-width: 0;
+    }
+
+    .q-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+    .q-num {
+      font-size: 13px;
+      letter-spacing: 6px;
+      color: #fbbf24;
+      font-weight: 800;
+      padding: 4px 12px;
+      background: rgba(251,191,36,0.12);
+      border: 1px solid rgba(251,191,36,0.35);
+      border-radius: 8px;
+    }
+    .q-total {
+      margin-left: auto;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      opacity: 0.7;
+    }
+    .q-total b {
+      color: #fbbf24;
+      font-size: 22px;
+      margin: 0 4px;
+      font-weight: 800;
+    }
+
+    .q-zh {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.3;
+      margin-top: 14px;
+      letter-spacing: 0.5px;
+    }
+    .q-en {
+      font-size: 13px;
+      opacity: 0.65;
+      line-height: 1.5;
+      margin-top: 6px;
+    }
+
+    .bars {
+      flex: 1;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-around;
+      gap: 18px;
+      padding: 30px 8px 0;
+      min-height: 0;
+    }
+    .bar-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      justify-content: flex-end;
+      max-width: 160px;
+    }
+    .count {
+      font-size: 38px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 6px;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .count.bump { transform: scale(1.25); color: #fbbf24; }
+    .pct {
+      font-size: 13px;
+      opacity: 0.75;
+      margin-bottom: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .bar-wrap {
+      width: 100%;
+      max-width: 110px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: flex-end;
+      height: 100%;
+      max-height: 60%;
+    }
+    .bar {
+      width: 100%;
+      min-height: 6px;
+      border-radius: 14px 14px 0 0;
+      transition: height 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    .bar::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.35), transparent 40%);
+      pointer-events: none;
+    }
+    .bar-col[data-opt="A"] .bar { background: linear-gradient(180deg, #60a5fa, #1d4ed8); box-shadow: 0 0 40px rgba(96,165,250,0.5); }
+    .bar-col[data-opt="B"] .bar { background: linear-gradient(180deg, #34d399, #047857); box-shadow: 0 0 40px rgba(52,211,153,0.5); }
+    .bar-col[data-opt="C"] .bar { background: linear-gradient(180deg, #fbbf24, #b45309); box-shadow: 0 0 40px rgba(251,191,36,0.5); }
+
+    .label {
+      margin-top: 16px;
+      text-align: center;
+    }
+    .label .badge {
+      display: inline-block;
+      width: 36px; height: 36px;
+      line-height: 34px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.25);
+      font-weight: 800;
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+    .label-zh { font-size: 16px; font-weight: 600; line-height: 1.2; }
+    .label-en { font-size: 11.5px; opacity: 0.6; margin-top: 2px; }
+
+    /* Side panel */
+    .side {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      padding: 30px 24px;
+      text-align: center;
+    }
+    .live {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      letter-spacing: 3px;
+      font-weight: 700;
+      padding: 6px 14px;
+      background: rgba(239,68,68,0.15);
+      border: 1px solid rgba(239,68,68,0.45);
+      border-radius: 20px;
+      color: #fecaca;
+    }
+    .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+      50% { opacity: 0.6; transform: scale(1.25); box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+    }
+
+    .side h2 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+    .side h2 small {
+      display: block;
+      font-size: 13px;
+      opacity: 0.6;
+      font-weight: 400;
+      margin-top: 4px;
+      letter-spacing: 1px;
+    }
+    #qrcode {
+      background: #fff;
+      padding: 18px;
+      border-radius: 18px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+      line-height: 0;
+    }
+    #qrcode canvas { display: block; }
+    .scan-hint {
+      font-size: 14px;
+      opacity: 0.85;
+      line-height: 1.5;
+    }
+    .scan-hint b { color: #fbbf24; }
+    .url {
+      font-size: 11px;
+      opacity: 0.5;
+      word-break: break-all;
+      max-width: 100%;
+      font-family: ui-monospace, Menlo, Monaco, monospace;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.25);
+      border-radius: 6px;
+    }
+    .conn {
+      font-size: 11px;
+      opacity: 0.5;
+      letter-spacing: 1.5px;
+    }
+    .conn.ok { color: #6ee7b7; opacity: 0.9; }
+    .conn.err { color: #fca5a5; opacity: 0.9; }
+
+    /* Responsive: stack when narrow */
+    @media (max-width: 1280px) {
+      .wrap { grid-template-columns: 1fr 1fr 340px; padding: 20px; gap: 18px; }
+      .q-zh { font-size: 19px; }
+      .count { font-size: 32px; }
+    }
+
+    /* ---- Start overlay (click to enter fullscreen, avoids browser chrome) ---- */
+    .start-overlay {
+      position: fixed; inset: 0;
+      background: radial-gradient(800px 600px at 50% 40%, rgba(99,102,241,0.35), transparent 60%),
+                  linear-gradient(135deg, #0b1220 0%, #111827 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      cursor: pointer;
+      transition: opacity 0.4s;
+    }
+    .start-overlay.hide { opacity: 0; pointer-events: none; }
+    .start-card {
+      text-align: center;
+      padding: 40px 60px;
+      max-width: 720px;
+    }
+    .start-card .logo {
+      font-size: 14px;
+      letter-spacing: 8px;
+      color: #fbbf24;
+      font-weight: 800;
+      margin-bottom: 18px;
+    }
+    .start-card h1 {
+      font-size: 48px;
+      font-weight: 800;
+      margin-bottom: 12px;
+      letter-spacing: 2px;
+    }
+    .start-card h1 small {
+      display: block;
+      font-size: 18px;
+      opacity: 0.7;
+      font-weight: 400;
+      margin-top: 8px;
+      letter-spacing: 4px;
+    }
+    .start-btn {
+      display: inline-block;
+      margin-top: 32px;
+      padding: 18px 48px;
+      background: linear-gradient(135deg, #6366f1, #ec4899);
+      color: #fff;
+      border-radius: 50px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      box-shadow: 0 12px 40px rgba(99,102,241,0.5);
+      animation: glow 2s infinite alternate;
+    }
+    @keyframes glow {
+      from { box-shadow: 0 12px 40px rgba(99,102,241,0.4); transform: translateY(0); }
+      to   { box-shadow: 0 16px 60px rgba(236,72,153,0.55); transform: translateY(-3px); }
+    }
+    .start-tips {
+      margin-top: 32px;
+      font-size: 13px;
+      opacity: 0.6;
+      line-height: 1.9;
+      letter-spacing: 1px;
+    }
+    .start-tips kbd {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 12px;
+    }
+
+    /* ---- Floating help / toast ---- */
+    .toast {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-80px);
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(10px);
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 30px;
+      font-size: 14px;
+      letter-spacing: 1px;
+      z-index: 200;
+      transition: transform 0.3s, opacity 0.3s;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    .help-panel {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #fff;
+      padding: 14px 18px;
+      border-radius: 12px;
+      font-size: 12px;
+      letter-spacing: 1px;
+      z-index: 50;
+      line-height: 1.8;
+      display: none;
+    }
+    .help-panel.show { display: block; }
+    .help-panel kbd {
+      background: rgba(255,255,255,0.12);
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 11px;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Start overlay: click to enter fullscreen -->
+  <div class="start-overlay" id="start-overlay">
+    <div class="start-card">
+      <div class="logo">LIVE POLL · 现场投票大屏</div>
+      <h1>智能照明 IoT 调研
+        <small>Smart Lighting · ESG Survey</small>
+      </h1>
+      <div class="start-btn">点击开始 · CLICK TO START</div>
+      <div class="start-tips">
+        点击后自动进入全屏模式 · Click enters fullscreen<br>
+        按 <kbd>F</kbd> 切换全屏 · <kbd>?</kbd> 显示帮助 · <kbd>Esc</kbd> 退出全屏<br>
+        建议在副屏 / 投影上打开本页，主屏继续放 PPT
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast" id="toast">—</div>
+
+  <!-- Keyboard help -->
+  <div class="help-panel" id="help">
+    <div><kbd>F</kbd> 切换全屏 Toggle fullscreen</div>
+    <div><kbd>R</kbd> 重置本机投票 Reset local vote</div>
+    <div><kbd>?</kbd> 隐藏 / 显示帮助</div>
+    <div><kbd>Esc</kbd> 退出全屏</div>
+  </div>
+
+  <div class="wrap">
+    <!-- Q1 panel -->
+    <div class="panel" id="panel-q1">
+      <div class="q-head">
+        <span class="q-num">Q1</span>
+        <span class="q-total">总票数 Total <b id="total-q1">0</b></span>
+      </div>
+      <div class="q-zh">您是否了解智能（物联网）照明产品？</div>
+      <div class="q-en">Are you familiar with IoT-enabled smart lighting products?</div>
+      <div class="bars" id="bars-q1">
+        <div class="bar-col" data-opt="A">
+          <div class="count" data-count="0">0</div>
+          <div class="pct">0%</div>
+          <div class="bar-wrap"><div class="bar" style="height:0"></div></div>
+          <div class="label">
+            <div class="badge">A</div>
+            <div class="label-zh">不了解</div>
+            <div class="label-en">Unaware</div>
+          </div>
+        </div>
+        <div class="bar-col" data-opt="B">
+          <div class="count" data-count="0">0</div>
+          <div class="pct">0%</div>
+          <div class="bar-wrap"><div class="bar" style="height:0"></div></div>
+          <div class="label">
+            <div class="badge">B</div>
+            <div class="label-zh">略有了解</div>
+            <div class="label-en">Somewhat familiar</div>
+          </div>
+        </div>
+        <div class="bar-col" data-opt="C">
+          <div class="count" data-count="0">0</div>
+          <div class="pct">0%</div>
+          <div class="bar-wrap"><div class="bar" style="height:0"></div></div>
+          <div class="label">
+            <div class="badge">C</div>
+            <div class="label-zh">十分了解</div>
+            <div class="label-en">Well-versed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Q2 panel -->
+    <div class="panel" id="panel-q2">
+      <div class="q-head">
+        <span class="q-num">Q2</span>
+        <span class="q-total">总票数 Total <b id="total-q2">0</b></span>
+      </div>
+      <div class="q-zh">结合节能 ESG 效益，您愿意为智能（物联网）灯具额外付费吗？</div>
+      <div class="q-en">In view of energy conservation and ESG benefits, would you pay a premium for IoT smart luminaires?</div>
+      <div class="bars" id="bars-q2">
+        <div class="bar-col" data-opt="A">
+          <div class="count" data-count="0">0</div>
+          <div class="pct">0%</div>
+          <div class="bar-wrap"><div class="bar" style="height:0"></div></div>
+          <div class="label">
+            <div class="badge">A</div>
+            <div class="label-zh">不愿意</div>
+            <div class="label-en">Unwilling</div>
+          </div>
+        </div>
+        <div class="bar-col" data-opt="B">
+          <div class="count" data-count="0">0</div>
+          <div class="pct">0%</div>
+          <div class="bar-wrap"><div class="bar" style="height:0"></div></div>
+          <div class="label">
+            <div class="badge">B</div>
+            <div class="label-zh">愿意</div>
+            <div class="label-en">Willing</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Side: QR + live indicator -->
+    <div class="panel side">
+      <div class="live"><span class="live-dot"></span><span>LIVE · 实时同步</span></div>
+      <h2>扫码投票<small>Scan QR to vote</small></h2>
+      <div id="qrcode"></div>
+      <div class="scan-hint">使用<b>微信</b>或<b>浏览器</b>扫码<br>WeChat / Browser camera</div>
+      <div class="url" id="url">—</div>
+      <div class="conn" id="conn">CONNECTING…</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- QR lib: cdnjs (Cloudflare) primary; if missing, synchronously load jsdelivr fallback -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    if (typeof QRCode === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>');
+    }
+  </script>
+  <script>
+    if (typeof QRCode === 'undefined') {
+      document.write('<script src="https://cdn.bootcdn.net/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>');
+    }
+  </script>
+  <script src="config.js"></script>
+  <script>
+    // ========== Fullscreen / start overlay / shortcuts ==========
+    const overlay = document.getElementById('start-overlay');
+    const help = document.getElementById('help');
+    const toastEl = document.getElementById('toast');
+    let toastTimer;
+    function toast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+    }
+
+    function enterFullscreen() {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+      if (req) return req.call(el).catch(err => toast('全屏失败: ' + err.message));
+    }
+    function exitFullscreen() {
+      const ex = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+      if (ex && document.fullscreenElement) ex.call(document);
+    }
+    function isFullscreen() {
+      return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+
+    overlay.addEventListener('click', () => {
+      enterFullscreen();
+      overlay.classList.add('hide');
+      setTimeout(() => { overlay.style.display = 'none'; }, 400);
+      // detect multi-monitor (best-effort)
+      if (window.screen && window.screen.isExtended) {
+        toast('检测到副屏，建议把窗口拖到投影屏');
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      // ignore when typing in form fields (none here, but safe)
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const k = e.key.toLowerCase();
+      if (k === 'f') {
+        e.preventDefault();
+        if (isFullscreen()) { exitFullscreen(); toast('已退出全屏'); }
+        else { enterFullscreen(); toast('已进入全屏'); }
+      } else if (k === '?' || k === '/') {
+        e.preventDefault();
+        help.classList.toggle('show');
+      } else if (k === 'r') {
+        // reset LOCAL vote markers only (for testing — does NOT touch server)
+        if (confirm('清除本机投票记录？(仅本设备，服务器票数不变)')) {
+          localStorage.removeItem('voted_q1');
+          localStorage.removeItem('voted_q2');
+          toast('本机投票记录已清除');
+        }
+      }
+    });
+
+    // Show help once on first reveal after 2s, then auto-hide after 4s
+    setTimeout(() => {
+      if (!overlay.classList.contains('hide')) return;
+      help.classList.add('show');
+      setTimeout(() => help.classList.remove('show'), 4000);
+    }, 2000);
+
+    // ========== Supabase + chart ==========
+    const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    const conn = document.getElementById('conn');
+
+    // -------- QR code: points to the vote page (index.html) --------
+    // Strategy: replace `screen.html` with `index.html` in current URL
+    function buildVoteUrl() {
+      const u = new URL(location.href);
+      u.hash = '';
+      u.search = '';
+      // remove the trailing `screen.html` if present, else use directory
+      u.pathname = u.pathname.replace(/screen\.html$/i, '') || '/';
+      // append index.html for clarity (works on github pages without it too)
+      if (!u.pathname.endsWith('/')) u.pathname += '/';
+      return u.toString();
+    }
+    const voteUrl = buildVoteUrl();
+    document.getElementById('url').textContent = voteUrl;
+    // Wrap QR so a CDN failure can't kill the rest of the page (realtime, etc.)
+    try {
+      if (typeof QRCode === 'undefined') throw new Error('QR library not loaded');
+      const qrBox = document.getElementById('qrcode');
+      qrBox.innerHTML = '';
+      // davidshimjs/qrcodejs API
+      new QRCode(qrBox, {
+        text: voteUrl,
+        width: 280,
+        height: 280,
+        colorDark: '#0b1220',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel ? QRCode.CorrectLevel.M : 1
+      });
+    } catch (e) {
+      console.error('QR render failed:', e);
+      const qrBox = document.getElementById('qrcode');
+      qrBox.innerHTML = '<div style="padding:30px;color:#0b1220;text-align:center;font-size:13px;line-height:1.5">QR 加载失败<br>请直接打开网址：<br><span style="word-break:break-all">' + voteUrl + '</span></div>';
+    }
+
+    // -------- Render bars --------
+    const lastCounts = { q1: {}, q2: {} };
+
+    function render(qid, data) {
+      const panel = document.getElementById('panel-' + qid);
+      if (!panel) return;
+      const cols = panel.querySelectorAll('.bar-col');
+      const counts = Array.from(cols).map(c => data[c.dataset.opt] || 0);
+      const total = counts.reduce((a, b) => a + b, 0);
+      const max = Math.max(...counts, 1);
+      document.getElementById('total-' + qid).textContent = total;
+      cols.forEach((col, i) => {
+        const opt = col.dataset.opt;
+        const n = counts[i];
+        const pct = total > 0 ? Math.round(n / total * 100) : 0;
+        const countEl = col.querySelector('.count');
+        const prev = lastCounts[qid][opt] || 0;
+        countEl.textContent = n;
+        col.querySelector('.pct').textContent = pct + '%';
+        // bar height as percentage of bar-wrap (which is max 60% of bars container)
+        col.querySelector('.bar').style.height = (n / max * 100) + '%';
+        // bump animation on increment
+        if (n > prev) {
+          countEl.classList.remove('bump');
+          // force reflow then re-add to retrigger
+          void countEl.offsetWidth;
+          countEl.classList.add('bump');
+          setTimeout(() => countEl.classList.remove('bump'), 400);
+        }
+        lastCounts[qid][opt] = n;
+      });
+    }
+
+    // -------- Initial load --------
+    async function loadInitial() {
+      try {
+        const { data, error } = await sb.from('votes').select('*');
+        if (error) throw error;
+        data.forEach(row => render(row.id, row.data));
+      } catch (e) {
+        conn.textContent = 'LOAD FAILED: ' + (e.message || e);
+        conn.className = 'conn err';
+      }
+    }
+
+    // -------- Realtime subscription --------
+    const channel = sb.channel('votes-changes')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'votes' }, payload => {
+        if (payload.new && payload.new.id) render(payload.new.id, payload.new.data);
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          conn.textContent = 'LIVE · CONNECTED';
+          conn.className = 'conn ok';
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          conn.textContent = 'DISCONNECTED — POLLING';
+          conn.className = 'conn err';
+        }
+      });
+
+    // -------- Fallback polling: in case realtime fails, refresh every 3s --------
+    setInterval(loadInitial, 3000);
+
+    loadInitial();
+  </script>
+</body>
+</html>
