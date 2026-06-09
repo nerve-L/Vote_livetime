@@ -170,6 +170,22 @@
       opacity: 0.55;
       margin-top: 24px;
     }
+    .reset-link {
+      display: inline-block;
+      margin-top: 8px;
+      background: none;
+      border: none;
+      color: inherit;
+      font: inherit;
+      font-size: 10px;
+      opacity: 0.5;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+      padding: 4px 8px;
+      font-family: inherit;
+    }
+    .reset-link:active { opacity: 0.8; }
 
     /* Live results (revealed after submit) */
     .results {
@@ -385,7 +401,10 @@
     </div>
 
     <div class="status" id="status">先选择，再点"确认提交"</div>
-    <div class="footer">数据匿名 · 仅用于现场展示</div>
+    <div class="footer">
+      数据匿名 · 仅用于现场展示<br>
+      <button type="button" class="reset-link" id="reset-local">重置本机投票 Reset my vote</button>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -548,6 +567,13 @@
     });
 
     restore();
+
+    document.getElementById('reset-local').addEventListener('click', () => {
+      if (!confirm('清除本机投票记录？\n(仅本设备可重投，服务器票数不变)\nReset local vote on this device?')) return;
+      localStorage.removeItem('voted_q1');
+      localStorage.removeItem('voted_q2');
+      location.reload();
+    });
   </script>
 </body>
 </html>
